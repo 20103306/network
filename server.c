@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/time.h>
 
 #define CONNECT 0
 #define PUT 1
@@ -139,10 +140,15 @@ int sendFile(int socket)
 	char fileName[100];
 	struct stat buffer;
 	int num = 0;
+	int nTime = 0;
+	int sendrate;
+	struct timeval tlast;
+	struct timeval tthis;
 	
 	read(socket, &pkt, sizeof(pkt));
 	id = pkt.type;
 	strcpy(fileName, pkt.buf);
+	sendrate = pkt.len;
 	
        	printf("put %s [%d] to client %d\n", fileName, pkt.len, id);
 	fd = open(fileName, O_RDONLY, 0644);
@@ -163,8 +169,23 @@ int sendFile(int socket)
 	pkt.len = buffer.st_size;
 	write(socket, &pkt, sizeof(pkt));
 
-	
+	gettimeofday(&tlast, NULL);
 	while(1){
+		gettimeofday(&tthis, NULL);
+		if(tthis.tv_sec - tlast.tv_sec < 1){
+			if((num-nTime) > sendrate){
+				//printf("sleep\n");
+				usleep(1000000 - abs(tthis.tv_usec - tlast.tv_usec));
+				//printf("awake\n");
+			}
+		}
+		else {
+			nTime = num;
+			tlast.tv_sec = tthis.tv_sec;
+			tlast.tv_usec = tthis.tv_usec;
+			printf("send : to client %d [%s] %d%% send complete.\n", id,
+				 fileName, (int)(((float)total/(float)buffer.st_size)*100));
+		}
 		memset(&pkt, 0, sizeof(pkt));
 		byteread = read(fd, pkt.buf, 1024);
 		if(byteread < 0){
@@ -184,7 +205,7 @@ int sendFile(int socket)
 		if(byteread < 1024)
 			break;
 	}
-	printf("client %d [%s] total %d byte receive complete!\n", id, fileName, total);
+	printf("send : to client %d [%s] total %dK byte receive complete!\n", id, fileName, (total/1024));
 	close(fd);
 	return 0;
 }
@@ -197,6 +218,8 @@ int receiveFile(int socket)
 	char fileName[100];
 	int fileSize;
 	int num = 0;
+	struct timeval tlast;
+	struct timeval tthis;
 	
 	read(socket, &pkt, sizeof(pkt));
 	id = pkt.type;
@@ -213,9 +236,17 @@ int receiveFile(int socket)
 		return -1;	
 	}
 	write(socket, &pkt, sizeof(pkt));
-	printf("get %s %d\n", fileName, fileSize);
 	
+	gettimeofday(&tlast, NULL);
 	while(1){
+		gettimeofday(&tthis, NULL);
+		if(tthis.tv_sec - tlast.tv_sec >= 1){
+			tlast.tv_sec = tthis.tv_sec;
+			tlast.tv_usec = tthis.tv_usec;
+			printf("recv : from client %d [%s] %d%% recv complete.\n", id,
+				 fileName, (int)(((float)total/(float)fileSize)*100));
+		}
+
 		memset(&pkt, 0, sizeof(pkt));
 		byteread = read(socket, &pkt, sizeof(pkt));
 		if(byteread < 0){
@@ -238,7 +269,7 @@ int receiveFile(int socket)
 		if(pkt.len < 1024)
 			break;
 	}
-	printf("client %d [%s] total %d byte receive complete!\n", id, fileName, total);
+	printf("recv : from client %d [%s] total %dK byte receive complete!\n", id, fileName, (total/1024));
 	close(fd);
 	return 0;
 }
