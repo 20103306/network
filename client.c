@@ -458,7 +458,7 @@ void create(char *str)
 	
 	switch(sn){
 		case 20103382 :
-			printf("make server.c & client.c\n");
+			printf("20103382 Jo kwang hyeon designed server.c & client.c and writing the report(manual)\n");
 			break;
 		default :
 			printf("Nothing.\n");
