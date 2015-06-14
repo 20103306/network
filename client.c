@@ -9,11 +9,14 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/time.h>
+#include <math.h>
 
 #define CONNECT 0
 #define PUT 1
 #define GET 2
 #define CLOSE 3
+#define CREATE 4
 
 #define MAXARG 10
 #define MAXBUF 512
@@ -27,6 +30,8 @@ typedef struct ftpPacket{
 int id;
 int isConnect = 0;
 char *prompt = "client > ";
+int sendrate = 10000;
+int recvrate = 10000;
 
 static char inpBuf[MAXBUF], tokBuf[2 * MAXBUF];
 static char *ptr;
@@ -39,6 +44,7 @@ int setServer(int argc, char *argv[], struct sockaddr_in *server);
 int getNewSocket(int cmd, struct sockaddr_in *server);
 int sendFile(char *fileName, int socket);
 int receiveFile(char *fileName, int socket);
+void create(char *str);
 
 //author : Jo kwang hyeon(Karasion)
 int main(int argc, char *argv[])
@@ -152,6 +158,33 @@ int runCMD(int argc, char *argv[], struct sockaddr_in *server)
 		printf("Bye Bye!\n");
 		exit(0);
 	}
+	else if(strcmp(argv[0], "sendrate") == 0){
+		if(argc != 2){
+			printf("usage: %s [0 < send rate <= 10000]\n", argv[0]);
+			return 0;
+		}
+		sscanf(argv[1], "%d", &sendrate);
+	}
+	else if(strcmp(argv[0], "recvrate") == 0){
+		if(argc != 2){
+			printf("usage: %s [0 < recv rate <= 10000]\n", argv[0]);
+			return 0;
+		}
+		sscanf(argv[1], "%d", &recvrate);
+	}
+	else if(strcmp(argv[0], "ratecurr") == 0){
+		if(argc != 1){
+			printf("usage: %s\n", argv[0]);
+		}
+		printf("sendrate : %d K , recvrate : %d K\n", sendrate, recvrate);
+	}
+	else if(strcmp(argv[0], "create") == 0){
+		if(argc != 2){
+			printf("usage: %s [school number]\n", argv[0]);
+			return 0;
+		}
+		create(argv[1]);
+	}
 	else{
 		printf("Wrong CMD!\n");
 		return 0;
@@ -212,7 +245,11 @@ int sendFile(char *fileName, int socket)
 	int fd;
 	int byteread, totalSend = 0;
 	int num = 0;
+	int nTime = 0;
+	int percent = 0;
         struct stat buffer;
+	struct timeval tlast;
+	struct timeval tthis;
 	
 	pkt.type = id;
 	strcpy(pkt.buf, fileName);	
@@ -239,8 +276,27 @@ int sendFile(char *fileName, int socket)
 		printf("server : same file exist!");
 		return -1;
 	}
-
+	
+	gettimeofday(&tlast, NULL);
 	while(1){
+		gettimeofday(&tthis, NULL);
+		if(tthis.tv_sec - tlast.tv_sec < 1){
+			if((num-nTime) > sendrate){
+				//printf("sleep\n");
+				usleep(1000000 - abs(tthis.tv_usec - tlast.tv_usec));
+				//printf("awake\n");
+			}
+		}
+		else {
+			nTime = num;
+			tlast.tv_sec = tthis.tv_sec;
+			tlast.tv_usec = tthis.tv_usec;
+			if((int)(((float)totalSend/(float)buffer.st_size)*100) >= percent ){
+				printf("[%s] %d%% send complete!\n", 
+				fileName, (int)(((float)totalSend/(float)buffer.st_size)*100));
+				percent += 10;
+			}
+		}
 		memset(&pkt, 0, sizeof(pkt));
 		byteread = read(fd, pkt.buf, 1024);
 		if(byteread < 0){
@@ -264,7 +320,7 @@ int sendFile(char *fileName, int socket)
 		}
 	}
 
-	printf("[%s] %d byte send complete!\n", fileName, totalSend);
+	printf("[%s] total %dK byte send complete!\n", fileName, (totalSend/1024));
 	close(fd);
 }
 //author : Jo kwang hyeon(Karasion)
@@ -275,6 +331,12 @@ int receiveFile(char *fileName, int socket)
 	int byteread, total = 0;
 	int fileSize;
 	int num = 0;
+	int percent = 0;
+	struct timeval tlast;
+	struct timeval tthis;
+
+	//send recvrate
+	pkt.len = recvrate;
 	
 	pkt.type = id;
 	strcpy(pkt.buf, fileName);
@@ -298,7 +360,19 @@ int receiveFile(char *fileName, int socket)
 		return -1;
 	}	
 
+	gettimeofday(&tlast, NULL);
 	while(1){
+		gettimeofday(&tthis, NULL);
+		if(tthis.tv_sec - tlast.tv_sec >= 1){
+			tlast.tv_sec = tthis.tv_sec;
+			tlast.tv_usec = tthis.tv_usec;
+			if((int)(((float)total/(float)fileSize)*100) >= percent ){
+				printf("[%s] %d%% recv complete!\n",
+				 fileName, (int)(((float)total/(float)fileSize)*100));
+				percent += 10;
+			}
+		}
+
 		byteread = read(socket, &pkt, sizeof(pkt));
 		if(byteread < 0){
 			printf("server err!\n");
@@ -319,7 +393,7 @@ int receiveFile(char *fileName, int socket)
 		}
 	}
 
-	printf("[%s] %d byte receive complete!\n", fileName, total);
+	printf("[%s] %dK byte receive complete!\n", fileName, (total/1024));
 	close(fd);
 }
 //author : Jo kwang hyeon(Karasion)
@@ -374,5 +448,20 @@ int userIn(char *p)
 			count = 0;
 			printf("%s", p);
 		}
+	}
+}
+
+void create(char *str)
+{
+	int sn;
+	sscanf(str, "%d", &sn);
+	
+	switch(sn){
+		case 20103382 :
+			printf("make server.c & client.c\n");
+			break;
+		default :
+			printf("Nothing.\n");
+			break;
 	}
 }
